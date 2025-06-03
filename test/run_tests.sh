@@ -140,7 +140,7 @@ test_security_headers() {
 
 # Main test execution
 main() {
-    print_header "Misewe Test Suite"
+    print_header "Zircon Test Suite"
     check_server
 
     test_basic_functionality
