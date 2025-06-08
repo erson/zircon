@@ -235,8 +235,14 @@ server_t *server_create(const server_config_t *config) {
     server->config = *config;
     
     /* Initialize rate limiter */
+    /* Convert per-minute rate limit to per-second, rounding up to avoid zero */
+    unsigned int per_sec = (config->max_requests + 59) / 60;
+    if (per_sec == 0) {
+        per_sec = 1;
+    }
+
     rate_limit_config_t rate_config = {
-        .requests_per_second = config->max_requests / 60,  // Convert per minute to per second
+        .requests_per_second = per_sec,
         .burst_size = config->max_requests,
         .window_seconds = 60
     };
