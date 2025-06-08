@@ -5,6 +5,31 @@
 #include <unistd.h>
 #include <time.h>
 #include <errno.h> // For errno
+#include <stddef.h> // For size_t explicitly
+
+#define HEURISTIC_READ_SIZE 16 // Max bytes to read for heuristic MIME detection
+
+// Define the structure for magic byte sequences and MIME types
+typedef struct {
+    unsigned char *magic;
+    size_t magic_len;
+    const char *mime_type;
+} magic_mime_map_t;
+
+// Define the array of magic byte maps
+static magic_mime_map_t magic_mime_maps[] = {
+    // PNG: \x89PNG\r\n\x1a\n (8 bytes) -> image/png
+    { (unsigned char *)"\x89PNG\r\n\x1a\n", 8, "image/png" },
+    // JPEG: \xFF\xD8\xFF (3 bytes) -> image/jpeg (variants like JFIF, Exif start with this)
+    { (unsigned char *)"\xFF\xD8\xFF", 3, "image/jpeg" },
+    // GIF: GIF87a or GIF89a (6 bytes) -> image/gif
+    { (unsigned char *)"GIF87a", 6, "image/gif" },
+    { (unsigned char *)"GIF89a", 6, "image/gif" },
+    // PDF: %PDF- (5 bytes, e.g., \x25PDF-) -> application/pdf
+    { (unsigned char *)"%PDF-", 5, "application/pdf" }, // or { (unsigned char *)"\x25PDF-", 5, "application/pdf" }
+    // ZIP: PK\x03\x04 (4 bytes) -> application/zip
+    { (unsigned char *)"PK\x03\x04", 4, "application/zip" }
+};
 
 /**
  * Get appropriate MIME type based on file extension
@@ -43,8 +68,39 @@ const char *http_get_mime_type(const char *path) {
         return "application/xml";
     if (strcasecmp(ext, "txt") == 0)
         return "text/plain";
+    if (strcasecmp(ext, "pdf") == 0)
+        return "application/pdf";
+    if (strcasecmp(ext, "zip") == 0)
+        return "application/zip";
+
+    // If no extension match, try heuristic detection based on magic numbers
+    fprintf(stderr, "INFO: File extension not recognized for '%s'. Attempting heuristic MIME detection.\n", path);
+    FILE *fp = fopen(path, "rb");
+    if (!fp) {
+        fprintf(stderr, "Could not open file %s for heuristic MIME detection: %s\n", path, strerror(errno));
+        return "application/octet-stream"; // Fallback if file can't be opened
+    }
+
+    unsigned char buffer[HEURISTIC_READ_SIZE];
+    size_t bytes_read = fread(buffer, 1, HEURISTIC_READ_SIZE, fp);
+    fclose(fp);
+
+    if (bytes_read == 0) {
+        // Empty file or read error, fallback
+        return "application/octet-stream";
+    }
+
+    for (size_t i = 0; i < sizeof(magic_mime_maps) / sizeof(magic_mime_maps[0]); ++i) {
+        if (bytes_read >= magic_mime_maps[i].magic_len) {
+            if (memcmp(buffer, magic_mime_maps[i].magic, magic_mime_maps[i].magic_len) == 0) {
+                fprintf(stderr, "INFO: Heuristic detection for '%s' identified MIME type as '%s'.\n", path, magic_mime_maps[i].mime_type);
+                return magic_mime_maps[i].mime_type; // Found a match
+            }
+        }
+    }
     
-    return "application/octet-stream";
+    fprintf(stderr, "INFO: Heuristic detection for '%s' found no matching magic number. Defaulting to application/octet-stream.\n", path);
+    return "application/octet-stream"; // Default fallback
 }
 
 /**
