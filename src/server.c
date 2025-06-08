@@ -133,6 +133,8 @@ static bool is_allowed_file_type(const char *path) {
         ".svg",          /* SVG images */
         ".woff", ".woff2", ".ttf", ".eot",  /* Fonts */
         ".json", ".xml", /* Data files */
+        ".pdf",          /* PDF documents */
+        ".zip",          /* ZIP archives */
         NULL
     };
 
