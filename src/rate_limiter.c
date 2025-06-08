@@ -62,6 +62,7 @@ static client_track_t *get_client(rate_limiter_t *limiter, const char *ip) {
         client_track_t *client = &limiter->clients[limiter->client_count++];
         strncpy(client->ip, ip, sizeof(client->ip) - 1);
         client->requests = calloc(limiter->config.burst_size, sizeof(time_t));
+        if (!client->requests) return NULL; // Check if calloc failed
         client->window_start = time(NULL);
         return client;
     }

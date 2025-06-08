@@ -4,6 +4,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <time.h>
+#include <errno.h> // For errno
 
 /**
  * Get appropriate MIME type based on file extension
@@ -114,6 +115,7 @@ void http_send_response(int client_fd, int status_code,
                        const void *body, size_t body_length,
                        const char *extra_headers) {
     char headers[4096];
+    ssize_t bytes_written; // To store return value of write
     int header_len;
 
     /* Format headers */
@@ -138,11 +140,24 @@ void http_send_response(int client_fd, int status_code,
     header_len = strlen(headers);
 
     /* Send headers */
-    write(client_fd, headers, header_len);
+    bytes_written = write(client_fd, headers, header_len);
+    if (bytes_written < 0) {
+        fprintf(stderr, "Error writing headers to client: %s\n", strerror(errno));
+        return; // Early exit if headers can't be written
+    }
+    if (bytes_written < header_len) {
+        fprintf(stderr, "Error writing headers to client: not all bytes written (%zd/%d)\n", bytes_written, header_len);
+        return; // Early exit
+    }
 
     /* Send body */
     if (body && body_length > 0) {
-        write(client_fd, body, body_length);
+        bytes_written = write(client_fd, body, body_length);
+        if (bytes_written < 0) {
+            fprintf(stderr, "Error writing body to client: %s\n", strerror(errno));
+        } else if (bytes_written < (ssize_t)body_length) {
+            fprintf(stderr, "Error writing body to client: not all bytes written (%zd/%zu)\n", bytes_written, body_length);
+        }
     }
 }
 
