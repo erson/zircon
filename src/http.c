@@ -28,7 +28,35 @@ static magic_mime_map_t magic_mime_maps[] = {
     // PDF: %PDF- (5 bytes, e.g., \x25PDF-) -> application/pdf
     { (unsigned char *)"%PDF-", 5, "application/pdf" }, // or { (unsigned char *)"\x25PDF-", 5, "application/pdf" }
     // ZIP: PK\x03\x04 (4 bytes) -> application/zip
-    { (unsigned char *)"PK\x03\x04", 4, "application/zip" }
+    { (unsigned char *)"PK\x03\x04", 4, "application/zip" },
+    // Legacy MS Office (CFBF)
+    { (unsigned char []){0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1}, 8, "application/msword" },
+    // Rich Text Format (RTF)
+    { (unsigned char []){0x7B, 0x5C, 0x72, 0x74, 0x66, 0x31}, 6, "application/rtf" }, // "{\\rtf1"
+    // RAR v5+
+    { (unsigned char []){0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x01, 0x00}, 8, "application/x-rar-compressed" },
+    // GZIP
+    { (unsigned char []){0x1F, 0x8B}, 2, "application/gzip" },
+    // 7-Zip
+    { (unsigned char []){0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C}, 6, "application/x-7z-compressed" },
+    // WebP (Simplified - checks for "RIFF" prefix, actual WEBP is at offset 8)
+    { (unsigned char []){0x52, 0x49, 0x46, 0x46}, 4, "image/webp" },
+    // AVI (Simplified - checks for "RIFF" prefix, actual AVI is at offset 8)
+    { (unsigned char []){0x52, 0x49, 0x46, 0x46}, 4, "video/x-msvideo" }, // AVI also starts with RIFF, may need more specific check or different order
+    // TIFF (Little Endian)
+    { (unsigned char []){0x49, 0x49, 0x2A, 0x00}, 4, "image/tiff" },
+    // TIFF (Big Endian)
+    { (unsigned char []){0x4D, 0x4D, 0x00, 0x2A}, 4, "image/tiff" },
+    // BMP
+    { (unsigned char []){0x42, 0x4D}, 2, "image/bmp" },
+    // SVG (checking for "<svg")
+    { (unsigned char []){0x3C, 0x73, 0x76, 0x67}, 4, "image/svg+xml" }, // "<svg"
+    // MP3 (ID3 tag)
+    { (unsigned char []){0x49, 0x44, 0x33}, 3, "audio/mpeg" }, // "ID3"
+    // Ogg
+    { (unsigned char []){0x4F, 0x67, 0x67, 0x53}, 4, "application/ogg" }, // "OggS"
+    // Matroska/WebM (.mkv, .webm)
+    { (unsigned char []){0x1A, 0x45, 0xDF, 0xA3}, 4, "video/x-matroska" }
 };
 
 /**
@@ -72,6 +100,35 @@ const char *http_get_mime_type(const char *path) {
         return "application/pdf";
     if (strcasecmp(ext, "zip") == 0)
         return "application/zip";
+
+    // MS Office documents
+    if (strcasecmp(ext, "doc") == 0) return "application/msword";
+    if (strcasecmp(ext, "docx") == 0) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    if (strcasecmp(ext, "xls") == 0) return "application/vnd.ms-excel";
+    if (strcasecmp(ext, "xlsx") == 0) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    if (strcasecmp(ext, "ppt") == 0) return "application/vnd.ms-powerpoint";
+    if (strcasecmp(ext, "pptx") == 0) return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+    if (strcasecmp(ext, "rtf") == 0) return "application/rtf";
+
+    // Archive extensions
+    if (strcasecmp(ext, "rar") == 0) return "application/x-rar-compressed";
+    if (strcasecmp(ext, "tar") == 0) return "application/x-tar";
+    if (strcasecmp(ext, "gz") == 0) return "application/gzip";
+    if (strcasecmp(ext, "7z") == 0) return "application/x-7z-compressed";
+
+    // Additional Image extensions
+    if (strcasecmp(ext, "webp") == 0) return "image/webp";
+    if (strcasecmp(ext, "tif") == 0 || strcasecmp(ext, "tiff") == 0) return "image/tiff";
+    if (strcasecmp(ext, "bmp") == 0) return "image/bmp";
+
+    // Audio/Video extensions
+    if (strcasecmp(ext, "mp3") == 0) return "audio/mpeg";
+    if (strcasecmp(ext, "oga") == 0) return "audio/ogg";
+    if (strcasecmp(ext, "ogv") == 0) return "video/ogg";
+    if (strcasecmp(ext, "ogg") == 0) return "application/ogg"; // Generic Ogg
+    if (strcasecmp(ext, "mov") == 0) return "video/quicktime";
+    if (strcasecmp(ext, "avi") == 0) return "video/x-msvideo";
+    if (strcasecmp(ext, "mkv") == 0) return "video/x-matroska";
 
     // If no extension match, try heuristic detection based on magic numbers
     fprintf(stderr, "INFO: File extension not recognized for '%s'. Attempting heuristic MIME detection.\n", path);

@@ -135,6 +135,14 @@ static bool is_allowed_file_type(const char *path) {
         ".json", ".xml", /* Data files */
         ".pdf",          /* PDF documents */
         ".zip",          /* ZIP archives */
+        /* Document extensions */
+        ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".rtf",
+        /* Archive extensions */
+        ".rar", ".tar", ".gz", ".7z",
+        /* Additional Image extensions */
+        ".tif", ".tiff", ".bmp",
+        /* Audio/Video extensions */
+        ".mp3", ".oga", ".ogv", ".mov", ".avi", ".mkv", ".ogg", // .ogg as general Ogg container
         NULL
     };
 
