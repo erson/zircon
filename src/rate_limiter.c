@@ -15,6 +15,13 @@ typedef struct {
     bool blocked;
 } client_track_t;
 
+/* Comparison function for client IPs used in bsearch/qsort */
+static int compare_client_ip(const void *a, const void *b) {
+    const client_track_t *ca = a;
+    const client_track_t *cb = b;
+    return strcmp(ca->ip, cb->ip);
+}
+
 /* Rate limiter context */
 struct rate_limiter {
     rate_limit_config_t config;
@@ -50,21 +57,33 @@ rate_limiter_t *rate_limiter_create(const rate_limit_config_t *config) {
 
 /* Find or create client entry */
 static client_track_t *get_client(rate_limiter_t *limiter, const char *ip) {
-    /* Look for existing client */
-    for (size_t i = 0; i < limiter->client_count; i++) {
-        if (strcmp(limiter->clients[i].ip, ip) == 0) {
-            return &limiter->clients[i];
-        }
+    /* Look for existing client using binary search */
+    client_track_t key = {0};
+    strncpy(key.ip, ip, sizeof(key.ip) - 1);
+    client_track_t *client = bsearch(&key, limiter->clients,
+                                     limiter->client_count,
+                                     sizeof(client_track_t),
+                                     compare_client_ip);
+    if (client) {
+        return client;
     }
 
     /* Add new client if space available */
     if (limiter->client_count < MAX_CLIENTS) {
-        client_track_t *client = &limiter->clients[limiter->client_count++];
+        client = &limiter->clients[limiter->client_count++];
+        memset(client, 0, sizeof(*client));
         strncpy(client->ip, ip, sizeof(client->ip) - 1);
         client->requests = calloc(limiter->config.burst_size, sizeof(time_t));
         if (!client->requests) return NULL; // Check if calloc failed
         client->window_start = time(NULL);
-        return client;
+
+        /* Keep clients sorted for efficient lookup */
+        qsort(limiter->clients, limiter->client_count,
+              sizeof(client_track_t), compare_client_ip);
+
+        /* Find and return the newly added client */
+        return bsearch(&key, limiter->clients, limiter->client_count,
+                       sizeof(client_track_t), compare_client_ip);
     }
 
     return NULL;
