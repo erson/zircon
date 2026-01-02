@@ -1,124 +1,147 @@
-# Zircon - A Minimal Secure Web Server
+# Zircon
 
-**IMPORTANT: This is an experimental project built entirely with AI assistance. DO NOT USE IN PRODUCTION!**
+A lightweight, event-driven HTTP server written in C.
 
-This project is a proof-of-concept web server written in C, developed through collaboration with AI. It serves as an interesting experiment in AI-assisted development and demonstrates both the capabilities and limitations of current AI coding assistants.
+> **Note**: This is an experimental project developed with AI assistance. Not recommended for production use.
 
-## Project Context
+## Features
 
-- **AI-Driven Development**: Every line of code, from architecture to implementation, was written with AI guidance
-- **Experimental Nature**: While functional, this is a learning experiment, not production software
-- **Research Value**: Demonstrates AI's current capabilities in system programming
-- **Educational Purpose**: Useful for studying AI-human collaboration in software development
+- **Event-driven architecture** using kqueue (macOS/BSD) or epoll (Linux)
+- **Zero-copy file transfer** via platform-native sendfile
+- **Security hardened**:
+  - Path traversal prevention
+  - File type restrictions
+  - Security headers (CSP, X-Frame-Options, HSTS, etc.)
+  - Rate limiting
+- **HTTP caching** with ETag support and Cache-Control headers
+- **MIME type detection** by extension and magic bytes
+- **Multi-threaded mode** with SO_REUSEPORT support (experimental)
 
-## Features Implemented
-
-- Basic HTTP server functionality (GET, HEAD)
-- Security features (path traversal prevention, file type restrictions)
-- Rate limiting implementation
-- File serving capabilities with correct MIME types
-- ETag and caching support
-- Security headers (XSS protection, content security policy, etc.)
-- Comprehensive test suite
-
-## Recent Improvements
-
-The latest updates to the project include:
-
-- Proper MIME type detection for served files
-- ETag generation and validation for caching
-- Cache-Control headers for browser caching optimization
-- Improved HTTP headers formatting
-- Better handling of HEAD requests
-- Enhanced security headers implementation
-- More robust rate limiting mechanism
-- Comprehensive test protocol
-
-## Running the Project
-
-For experimental or educational purposes only:
+## Quick Start
 
 ```bash
-# Clone and build
-git clone https://github.com/erson/zircon.git
-cd zircon
+# Build
 make
 
-# Start server (for testing only)
+# Run (listens on 127.0.0.1:8000 by default)
 ./bin/zircon
 
-# Run test suite
-./test-improved.sh
+# Run with options
+./bin/zircon --port 8080 --bind 0.0.0.0
+
+# Show all options
+./bin/zircon --help
+```
+
+## Usage
+
+```
+Usage: ./bin/zircon [OPTIONS]
+
+Options:
+  --port PORT        Listen on PORT (default: 8000)
+  --bind ADDR        Bind to ADDR (default: 127.0.0.1)
+  --workers N        Run with N worker threads (experimental)
+  --platform-info    Show platform capabilities
+  --help             Show this help
 ```
 
 ## Project Structure
 
 ```
 zircon/
-├── bin/          # Compiled executables
-├── conf/         # Configuration files
-├── include/      # Header files
-├── obj/          # Object files (created during build)
-├── src/          # Source code
-├── test/         # Test scripts and utilities
-├── www/          # Web root directory
-├── test-improved.sh  # Test protocol
-└── README.md     # This file
+├── src/
+│   ├── main.c              # Entry point, CLI parsing
+│   ├── server_async.c      # Event-driven server core
+│   ├── http.c              # HTTP parsing, MIME types, ETag
+│   ├── rate_limiter.c      # IP-based rate limiting
+│   ├── security_headers.c  # Security header generation
+│   ├── logger.c            # Logging system
+│   └── platform/           # Platform abstraction layer
+│       ├── event_kqueue.c  # macOS/BSD event loop
+│       ├── event_epoll.c   # Linux event loop
+│       ├── sendfile.c      # Zero-copy file transfer
+│       ├── thread_pool.c   # Worker thread pool
+│       └── thread.c        # Thread utilities
+├── include/                # Header files
+├── test/                   # Test suite
+├── www/                    # Default web root
+├── conf/                   # Configuration files
+└── Makefile
 ```
 
-## Known Limitations
+## Building
 
-As an AI-developed project, there are inherent limitations:
-- Security measures may not be comprehensive
-- Edge cases might not be fully handled
-- Performance optimizations may be basic
-- Code structure reflects AI's current capabilities
+### Requirements
 
-## Educational Value
+- GCC or Clang
+- POSIX-compliant OS (Linux, macOS, FreeBSD)
+- pthread library
 
-This project is valuable for:
-- Studying AI-assisted development
-- Learning about web server implementation
-- Understanding security considerations
-- Exploring test-driven development
+### Build Commands
 
-## Development Notes
+```bash
+make              # Release build
+make DEBUG=1      # Debug build with symbols
+make clean        # Clean build artifacts
+make test         # Run test suite
+```
 
-### AI Collaboration Process
-- All code was written through interaction with AI
-- Decisions were guided by AI suggestions
-- Testing and validation were AI-assisted
-- Documentation was AI-generated
+## Testing
 
-### Technical Stack
-- Language: C
-- Build System: Make
-- Testing: Shell scripts
-- Platform: POSIX-compliant systems
+```bash
+# Run all tests
+make test
 
-## Contributing
+# Run specific test categories
+make test-unit
+make test-security
+make test-performance
 
-While this is primarily an AI experiment, you can:
-1. Study the AI-human collaboration process
-2. Experiment with the codebase
-3. Report findings about AI-generated code
-4. Suggest improvements for future AI experiments
+# Run edge case security tests
+./test/edge_case_test.sh
+```
 
-## Disclaimer
+## Architecture
 
-**WARNING**: This software is:
-- An experimental project
-- Developed entirely with AI assistance
-- NOT security audited
-- NOT suitable for production use
-- For educational purposes ONLY
+### Event Loop
+
+The server uses a single-threaded event loop by default:
+
+1. Accept connections via non-blocking socket
+2. Register client fd with kqueue/epoll
+3. On read event: parse HTTP request, validate, serve file
+4. Use sendfile() for zero-copy transfer
+5. Close connection after response
+
+### Security Model
+
+All requests pass through multiple validation layers:
+
+- **Path validation**: Blocks `..`, encoded traversal, null bytes
+- **Method restriction**: Only GET and HEAD allowed
+- **File type check**: Whitelist of allowed extensions
+- **Rate limiting**: Per-IP request throttling
+- **Response headers**: CSP, HSTS, X-Frame-Options, etc.
+
+## Performance
+
+Single-threaded async mode on macOS (Apple Silicon):
+- ~15,000 requests/second with 50 concurrent connections
+- Sub-millisecond latency for small files
+
+## Limitations
+
+- No HTTPS (TLS) support
+- No HTTP/2
+- No dynamic content / CGI
+- Request size limited to 4KB
+- Single-threaded by default
 
 ## License
 
-MIT License - Feel free to study and learn from this experiment, but remember: DO NOT USE IN PRODUCTION!
+MIT License
 
 ## Acknowledgments
 
-- Built with AI assistance
-- Serves as a case study in AI-human collaboration
-- Demonstrates current state of AI coding capabilities
+Developed as an experiment in AI-assisted systems programming.

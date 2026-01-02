@@ -2,10 +2,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <time.h>
-#include <errno.h> // For errno
-#include <stddef.h> // For size_t explicitly
+#include <errno.h>
 
 #define HEURISTIC_READ_SIZE 16 // Max bytes to read for heuristic MIME detection
 
@@ -164,68 +162,4 @@ bool http_parse_request(const char *buffer, __attribute__((unused)) size_t lengt
     }
 
     return true;
-}
-
-void http_send_response(int client_fd, int status_code, 
-                       const char *content_type, 
-                       const void *body, size_t body_length,
-                       const char *extra_headers) {
-    char headers[4096];
-    ssize_t bytes_written; // To store return value of write
-    int header_len;
-
-    /* Format headers */
-    header_len = snprintf(headers, sizeof(headers),
-        "HTTP/1.1 %d %s\r\n"
-        "Content-Type: %s\r\n"
-        "Content-Length: %zu\r\n"
-        "Connection: close\r\n",
-        status_code,
-        status_code == 200 ? "OK" : "Error",
-        content_type,
-        body_length);
-
-    /* Add extra headers if provided */
-    if (extra_headers) {
-        strncat(headers, extra_headers, sizeof(headers) - header_len - 1);
-        header_len = strlen(headers);
-    }
-
-    /* Add final CRLF */
-    strncat(headers, "\r\n", sizeof(headers) - header_len - 1);
-    header_len = strlen(headers);
-
-    /* Send headers */
-    bytes_written = write(client_fd, headers, header_len);
-    if (bytes_written < 0) {
-        fprintf(stderr, "Error writing headers to client: %s\n", strerror(errno));
-        return; // Early exit if headers can't be written
-    }
-    if (bytes_written < header_len) {
-        fprintf(stderr, "Error writing headers to client: not all bytes written (%zd/%d)\n", bytes_written, header_len);
-        return; // Early exit
-    }
-
-    /* Send body */
-    if (body && body_length > 0) {
-        bytes_written = write(client_fd, body, body_length);
-        if (bytes_written < 0) {
-            fprintf(stderr, "Error writing body to client: %s\n", strerror(errno));
-        } else if (bytes_written < (ssize_t)body_length) {
-            fprintf(stderr, "Error writing body to client: not all bytes written (%zd/%zu)\n", bytes_written, body_length);
-        }
-    }
-}
-
-void http_send_error(int client_fd, int status_code, const char *message) {
-    /* Add security headers for error responses too */
-    const char *security_headers = 
-        "X-Frame-Options: DENY\r\n"
-        "X-Content-Type-Options: nosniff\r\n"
-        "X-XSS-Protection: 1; mode=block\r\n"
-        "Content-Security-Policy: default-src 'self'\r\n"
-        "Strict-Transport-Security: max-age=31536000; includeSubDomains\r\n";
-
-    http_send_response(client_fd, status_code, "text/plain", 
-                      message, strlen(message), security_headers);
 }

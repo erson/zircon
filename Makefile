@@ -10,13 +10,27 @@ endif
 
 LDFLAGS = -lpthread
 
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Darwin)
+    PLATFORM = macos
+endif
+ifeq ($(UNAME_S),Linux)
+    PLATFORM = linux
+endif
+ifeq ($(UNAME_S),FreeBSD)
+    PLATFORM = freebsd
+endif
+
 SRC_DIR = src
+PLATFORM_DIR = src/platform
 TEST_DIR = test
 OBJ_DIR = obj
 BIN_DIR = bin
 
 SRCS = $(wildcard $(SRC_DIR)/*.c)
+PLATFORM_SRCS = $(wildcard $(PLATFORM_DIR)/*.c)
 OBJS = $(SRCS:$(SRC_DIR)/%.c=$(OBJ_DIR)/%.o)
+PLATFORM_OBJS = $(PLATFORM_SRCS:$(PLATFORM_DIR)/%.c=$(OBJ_DIR)/platform_%.o)
 TEST_SRCS = $(wildcard $(TEST_DIR)/*.c)
 TEST_OBJS = $(TEST_SRCS:$(TEST_DIR)/%.c=$(OBJ_DIR)/%.o)
 
@@ -33,18 +47,22 @@ test-original: setup $(TEST_TARGET)
 setup:
 	@mkdir -p $(OBJ_DIR) $(BIN_DIR) www
 
-$(TARGET): $(OBJS)
+$(TARGET): $(OBJS) $(PLATFORM_OBJS)
 	@echo "Linking $(TARGET)..."
-	@$(CC) $(OBJS) -o $@ $(LDFLAGS)
-	@echo "Build complete: $@"
+	@$(CC) $(OBJS) $(PLATFORM_OBJS) -o $@ $(LDFLAGS)
+	@echo "Build complete: $@ ($(PLATFORM))"
 
-$(TEST_TARGET): $(TEST_OBJS) $(filter-out $(OBJ_DIR)/main.o, $(OBJS))
+$(TEST_TARGET): $(TEST_OBJS) $(filter-out $(OBJ_DIR)/main.o, $(OBJS)) $(PLATFORM_OBJS)
 	@echo "Linking $(TEST_TARGET)..."
 	@$(CC) $^ -o $@ $(LDFLAGS)
 	@echo "Test build complete: $@"
 
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
 	@echo "Compiling $<..."
+	@$(CC) $(CFLAGS) -c $< -o $@
+
+$(OBJ_DIR)/platform_%.o: $(PLATFORM_DIR)/%.c
+	@echo "Compiling platform/$*.c..."
 	@$(CC) $(CFLAGS) -c $< -o $@
 
 $(OBJ_DIR)/%.o: $(TEST_DIR)/%.c
@@ -72,9 +90,15 @@ distclean: clean
 	@echo "Removing all generated files and directories..."
 	@rm -rf $(OBJ_DIR) $(BIN_DIR)
 
+platform-info: setup $(PLATFORM_OBJS)
+	@echo "Platform: $(PLATFORM)"
+	@echo "Compiler: $(CC)"
+	@echo "CFLAGS: $(CFLAGS)"
+
 help:
 	@echo "Available targets:"
 	@echo "  all            - Build the server (default)"
+	@echo "  platform-info  - Show platform detection info"
 	@echo "  test           - Run comprehensive test suite"
 	@echo "  test-original  - Build and run original tests"
 	@echo "  test-unit      - Run unit tests only"
