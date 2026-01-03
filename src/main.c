@@ -21,12 +21,10 @@ unsigned int platform_cpu_count(void);
 static volatile sig_atomic_t g_shutdown = 0;
 static thread_pool_t *g_pool = NULL;
 
-static char* get_timestamp(void) {
-    static char buffer[32];
+static void get_timestamp_str(char *buffer, size_t size) {
     time_t now = time(NULL);
     struct tm *tm_info = localtime(&now);
-    strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", tm_info);
-    return buffer;
+    strftime(buffer, size, "%Y-%m-%d %H:%M:%S", tm_info);
 }
 
 static void print_platform_info(void) {
@@ -41,11 +39,59 @@ static void print_platform_info(void) {
 static void print_usage(const char *prog) {
     printf("Usage: %s [OPTIONS]\n", prog);
     printf("Options:\n");
+    printf("  --config FILE      Load config from FILE\n");
     printf("  --platform-info    Show platform capabilities\n");
     printf("  --workers N        Run with N worker threads (0=auto, default=single-threaded)\n");
     printf("  --port PORT        Listen on PORT (default: 8000)\n");
     printf("  --bind ADDR        Bind to ADDR (default: 127.0.0.1)\n");
+    printf("  --root DIR         Serve files from DIR (default: www)\n");
+    printf("  --timeout SEC      Connection timeout in seconds (default: 30)\n");
+    printf("  --keep-alive       Enable HTTP Keep-Alive\n");
     printf("  --help             Show this help\n");
+}
+
+static bool load_config_file(const char *path, int *port, char *bind_addr, size_t bind_size,
+                              char *root_dir, size_t root_size, unsigned int *timeout,
+                              bool *keep_alive) {
+    FILE *f = fopen(path, "r");
+    if (!f) return false;
+    
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        char *p = line;
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p == '#' || *p == '\n' || *p == '\0') continue;
+        
+        char *eq = strchr(p, '=');
+        if (!eq) continue;
+        
+        *eq = '\0';
+        char *key = p;
+        char *val = eq + 1;
+        
+        while (*key && (key[strlen(key)-1] == ' ' || key[strlen(key)-1] == '\t'))
+            key[strlen(key)-1] = '\0';
+        while (*val == ' ' || *val == '\t') val++;
+        char *nl = strchr(val, '\n');
+        if (nl) *nl = '\0';
+        
+        if (strcmp(key, "port") == 0) {
+            *port = atoi(val);
+        } else if (strcmp(key, "bind") == 0) {
+            strncpy(bind_addr, val, bind_size - 1);
+            bind_addr[bind_size - 1] = '\0';
+        } else if (strcmp(key, "root") == 0) {
+            strncpy(root_dir, val, root_size - 1);
+            root_dir[root_size - 1] = '\0';
+        } else if (strcmp(key, "timeout") == 0) {
+            *timeout = (unsigned int)atoi(val);
+        } else if (strcmp(key, "keep_alive") == 0) {
+            *keep_alive = (strcmp(val, "true") == 0 || strcmp(val, "1") == 0);
+        }
+    }
+    
+    fclose(f);
+    return true;
 }
 
 static void signal_handler(int sig) {
@@ -79,7 +125,9 @@ static void on_worker_accept(worker_t *worker, socket_t client_fd,
 }
 
 static int run_multi_threaded(int port, const char *bind_addr, unsigned int num_workers) {
-    printf("[%s] Multi-threaded mode: %u workers\n", get_timestamp(), 
+    char ts[32];
+    get_timestamp_str(ts, sizeof(ts));
+    printf("[%s] Multi-threaded mode: %u workers\n", ts, 
            num_workers == 0 ? platform_cpu_count() : num_workers);
     
     thread_pool_config_t pool_config = thread_pool_default_config();
@@ -94,7 +142,8 @@ static int run_multi_threaded(int port, const char *bind_addr, unsigned int num_
     
     g_pool = thread_pool_create(&pool_config);
     if (!g_pool) {
-        fprintf(stderr, "[%s] Error: Failed to create thread pool\n", get_timestamp());
+        get_timestamp_str(ts, sizeof(ts));
+        fprintf(stderr, "[%s] Error: Failed to create thread pool\n", ts);
         return 1;
     }
     
@@ -102,13 +151,15 @@ static int run_multi_threaded(int port, const char *bind_addr, unsigned int num_
     signal(SIGTERM, signal_handler);
     
     if (thread_pool_start(g_pool) < 0) {
-        fprintf(stderr, "[%s] Error: Failed to start thread pool\n", get_timestamp());
+        get_timestamp_str(ts, sizeof(ts));
+        fprintf(stderr, "[%s] Error: Failed to start thread pool\n", ts);
         thread_pool_destroy(g_pool);
         return 1;
     }
     
+    get_timestamp_str(ts, sizeof(ts));
     printf("[%s] Server running on http://%s:%d (multi-threaded)\n",
-           get_timestamp(), bind_addr, port);
+           ts, bind_addr, port);
     
     while (!g_shutdown) {
         sleep(1);
@@ -121,60 +172,75 @@ static int run_multi_threaded(int port, const char *bind_addr, unsigned int num_
         last_requests = stats.requests_processed;
         
         if (rps > 0) {
+            get_timestamp_str(ts, sizeof(ts));
             printf("[%s] Stats: %llu active, %llu total, %llu req/s\n",
-                   get_timestamp(),
+                   ts,
                    (unsigned long long)stats.connections_active,
                    (unsigned long long)stats.connections_accepted,
                    (unsigned long long)rps);
         }
     }
     
-    printf("\n[%s] Shutting down...\n", get_timestamp());
+    get_timestamp_str(ts, sizeof(ts));
+    printf("\n[%s] Shutting down...\n", ts);
     thread_pool_destroy(g_pool);
     g_pool = NULL;
     
     return 0;
 }
 
-static int run_single_threaded(int port, const char *bind_addr) {
+static int run_single_threaded(int port, const char *bind_addr, const char *root_dir,
+                                unsigned int timeout, bool keep_alive) {
+    char ts[32];
+    get_timestamp_str(ts, sizeof(ts));
+    
     server_config_t config = {
         .port = port,
         .bind_addr = {0},
-        .root_dir = "www",
-        .max_requests = 100
+        .root_dir = {0},
+        .max_requests = 100,
+        .connection_timeout = timeout,
+        .max_request_size = 8192,
+        .keep_alive = keep_alive
     };
     strncpy(config.bind_addr, bind_addr, sizeof(config.bind_addr) - 1);
+    strncpy(config.root_dir, root_dir, sizeof(config.root_dir) - 1);
 
-    printf("[%s] Server Configuration:\n", get_timestamp());
-    printf("- Listening on: http://%s:%d\n", config.bind_addr, config.port);
-    printf("- Web root: %s\n", config.root_dir);
-    printf("- Rate limit: %d requests/minute\n", config.max_requests);
-    printf("\n[%s] Initializing server...\n", get_timestamp());
+    printf("[%s] Server Configuration:\n", ts);
+    printf("  Listening: http://%s:%d\n", config.bind_addr, config.port);
+    printf("  Root:      %s\n", config.root_dir);
+    printf("  Timeout:   %u seconds\n", config.connection_timeout);
+    printf("  KeepAlive: %s\n", config.keep_alive ? "enabled" : "disabled");
+    printf("\n");
 
     server_t *server = server_create(&config);
     if (!server) {
-        fprintf(stderr, "[%s] Error: Failed to create server\n", get_timestamp());
+        get_timestamp_str(ts, sizeof(ts));
+        fprintf(stderr, "[%s] Error: Failed to create server\n", ts);
         return 1;
     }
-    printf("[%s] Server created successfully\n", get_timestamp());
 
-    printf("\n[%s] Starting server...\n", get_timestamp());
     if (!server_run(server)) {
-        fprintf(stderr, "[%s] Error: Failed to run server\n", get_timestamp());
+        get_timestamp_str(ts, sizeof(ts));
+        fprintf(stderr, "[%s] Error: Failed to run server\n", ts);
         server_destroy(server);
         return 1;
     }
 
-    printf("\n[%s] Server shutting down...\n", get_timestamp());
     server_destroy(server);
-    printf("[%s] Server stopped\n", get_timestamp());
+    get_timestamp_str(ts, sizeof(ts));
+    printf("[%s] Server stopped\n", ts);
     return 0;
 }
 
 int main(int argc, char *argv[]) {
     int port = 8000;
-    const char *bind_addr = "127.0.0.1";
+    char bind_addr[64] = "127.0.0.1";
+    char root_dir[256] = "www";
     int num_workers = -1;
+    unsigned int timeout = 30;
+    bool keep_alive = false;
+    const char *config_file = NULL;
     
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--platform-info") == 0) {
@@ -183,12 +249,20 @@ int main(int argc, char *argv[]) {
         } else if (strcmp(argv[i], "--help") == 0) {
             print_usage(argv[0]);
             return 0;
+        } else if (strcmp(argv[i], "--config") == 0 && i + 1 < argc) {
+            config_file = argv[++i];
         } else if (strcmp(argv[i], "--workers") == 0 && i + 1 < argc) {
             num_workers = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--port") == 0 && i + 1 < argc) {
             port = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--bind") == 0 && i + 1 < argc) {
-            bind_addr = argv[++i];
+            strncpy(bind_addr, argv[++i], sizeof(bind_addr) - 1);
+        } else if (strcmp(argv[i], "--root") == 0 && i + 1 < argc) {
+            strncpy(root_dir, argv[++i], sizeof(root_dir) - 1);
+        } else if (strcmp(argv[i], "--timeout") == 0 && i + 1 < argc) {
+            timeout = (unsigned int)atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--keep-alive") == 0) {
+            keep_alive = true;
         } else {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
             print_usage(argv[0]);
@@ -196,12 +270,35 @@ int main(int argc, char *argv[]) {
         }
     }
     
-    printf("\n=== Zircon Secure Web Server ===\n");
-    printf("[%s] Server starting up\n\n", get_timestamp());
+    if (config_file) {
+        int cfg_port = port;
+        char cfg_bind[64], cfg_root[256];
+        unsigned int cfg_timeout = timeout;
+        bool cfg_keepalive = keep_alive;
+        strncpy(cfg_bind, bind_addr, sizeof(cfg_bind));
+        strncpy(cfg_root, root_dir, sizeof(cfg_root));
+        
+        if (!load_config_file(config_file, &cfg_port, cfg_bind, sizeof(cfg_bind),
+                               cfg_root, sizeof(cfg_root), &cfg_timeout, &cfg_keepalive)) {
+            fprintf(stderr, "Error: Could not load config file: %s\n", config_file);
+            return 1;
+        }
+        
+        if (port == 8000) port = cfg_port;
+        if (strcmp(bind_addr, "127.0.0.1") == 0) strncpy(bind_addr, cfg_bind, sizeof(bind_addr));
+        if (strcmp(root_dir, "www") == 0) strncpy(root_dir, cfg_root, sizeof(root_dir));
+        if (timeout == 30) timeout = cfg_timeout;
+        if (!keep_alive) keep_alive = cfg_keepalive;
+    }
+    
+    char ts[32];
+    get_timestamp_str(ts, sizeof(ts));
+    printf("\n=== Zircon Web Server ===\n");
+    printf("[%s] Starting...\n\n", ts);
     
     if (num_workers >= 0) {
         return run_multi_threaded(port, bind_addr, (unsigned int)num_workers);
     }
     
-    return run_single_threaded(port, bind_addr);
+    return run_single_threaded(port, bind_addr, root_dir, timeout, keep_alive);
 }

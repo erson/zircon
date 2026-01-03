@@ -14,6 +14,7 @@
 #include <mswsock.h>
 #endif
 
+__attribute__((unused))
 static sendfile_result_t sendfile_userspace_fallback(socket_t out_fd, int in_fd,
                                                       off_t *offset, size_t count,
                                                       size_t *bytes_sent) {

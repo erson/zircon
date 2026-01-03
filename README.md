@@ -8,14 +8,18 @@ A lightweight, event-driven HTTP server written in C.
 
 - **Event-driven architecture** using kqueue (macOS/BSD) or epoll (Linux)
 - **Zero-copy file transfer** via platform-native sendfile
+- **HTTP Keep-Alive** for connection reuse
 - **Security hardened**:
   - Path traversal prevention
   - File type restrictions
   - Security headers (CSP, X-Frame-Options, HSTS, etc.)
   - Rate limiting
+  - Request size limits with proper 413 responses
 - **HTTP caching** with ETag support and Cache-Control headers
 - **MIME type detection** by extension and magic bytes
-- **Multi-threaded mode** with SO_REUSEPORT support (experimental)
+- **Graceful shutdown** on SIGTERM/SIGINT
+- **Connection timeouts** for idle connections
+- **Config file support**
 
 ## Quick Start
 
@@ -27,7 +31,10 @@ make
 ./bin/zircon
 
 # Run with options
-./bin/zircon --port 8080 --bind 0.0.0.0
+./bin/zircon --port 8080 --bind 0.0.0.0 --keep-alive
+
+# Load from config file
+./bin/zircon --config conf/server.conf
 
 # Show all options
 ./bin/zircon --help
@@ -39,11 +46,35 @@ make
 Usage: ./bin/zircon [OPTIONS]
 
 Options:
+  --config FILE      Load config from FILE
   --port PORT        Listen on PORT (default: 8000)
   --bind ADDR        Bind to ADDR (default: 127.0.0.1)
+  --root DIR         Serve files from DIR (default: www)
+  --timeout SEC      Connection timeout in seconds (default: 30)
+  --keep-alive       Enable HTTP Keep-Alive
   --workers N        Run with N worker threads (experimental)
   --platform-info    Show platform capabilities
   --help             Show this help
+```
+
+## Configuration File
+
+Example `conf/server.conf`:
+
+```ini
+# Network
+port = 8000
+bind = 127.0.0.1
+
+# Paths
+root = www
+
+# Limits
+timeout = 30
+max_request_size = 8192
+
+# Features
+keep_alive = false
 ```
 
 ## Project Structure
@@ -112,7 +143,8 @@ The server uses a single-threaded event loop by default:
 2. Register client fd with kqueue/epoll
 3. On read event: parse HTTP request, validate, serve file
 4. Use sendfile() for zero-copy transfer
-5. Close connection after response
+5. With keep-alive: reset connection state and continue
+6. Without keep-alive: close connection
 
 ### Security Model
 
@@ -121,6 +153,7 @@ All requests pass through multiple validation layers:
 - **Path validation**: Blocks `..`, encoded traversal, null bytes
 - **Method restriction**: Only GET and HEAD allowed
 - **File type check**: Whitelist of allowed extensions
+- **Request size limit**: Returns 413 for oversized requests
 - **Rate limiting**: Per-IP request throttling
 - **Response headers**: CSP, HSTS, X-Frame-Options, etc.
 
@@ -135,7 +168,6 @@ Single-threaded async mode on macOS (Apple Silicon):
 - No HTTPS (TLS) support
 - No HTTP/2
 - No dynamic content / CGI
-- Request size limited to 4KB
 - Single-threaded by default
 
 ## License
