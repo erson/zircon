@@ -25,6 +25,7 @@ struct worker {
     worker_stats_t stats;
     
     worker_accept_cb on_accept;
+    worker_periodic_cb on_periodic;
     void *userdata;
     int max_connections;
 };
@@ -176,9 +177,12 @@ static void *worker_thread_main(void *arg) {
     worker->running = true;
     
     while (worker->running && pool->running) {
-        int result = event_loop_run_once(worker->event_loop, 100);
+        int result = event_loop_run_once(worker->event_loop, 1000);
         if (result < 0 && result != ZIRCON_TIMEOUT) {
             break;
+        }
+        if (worker->on_periodic) {
+            worker->on_periodic(worker, worker->userdata);
         }
     }
     
@@ -259,6 +263,7 @@ thread_pool_t *thread_pool_create(const thread_pool_config_t *config) {
         w->event_loop = NULL;
         w->running = false;
         w->on_accept = config->worker.on_accept;
+        w->on_periodic = config->worker.on_periodic;
         w->userdata = config->worker.userdata;
         w->max_connections = config->worker.max_connections;
         memset(&w->stats, 0, sizeof(w->stats));

@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <time.h>
 #include <errno.h>
 
@@ -143,7 +144,9 @@ bool http_check_etag_match(const char *request, const char *etag) {
 
 bool http_parse_request(const char *buffer, __attribute__((unused)) size_t length, http_request_t *req) {
     char method[16];
-    
+
+    if (!buffer || !req) return false;
+
     /* Parse request line */
     if (sscanf(buffer, "%15s %255s %15s", method, req->path, req->version) != 3) {
         return false;

@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <stdbool.h>
 #include "../include/logger.h"
 
 /* Test utilities */
@@ -88,7 +89,7 @@ TEST(logger_levels) {
     
     log_write(LOG_DEBUG, "Debug message");
     log_write(LOG_INFO, "Info message");
-    log_write(LOG_WARNING, "Warning message");
+    log_write(LOG_WARN, "Warning message");
     log_write(LOG_ERROR, "Error message");
     
     log_close();
@@ -113,11 +114,11 @@ TEST(logger_level_filtering) {
     unlink(test_log);
     
     log_init(test_log);
-    log_set_level(LOG_WARNING);  // Only WARNING and ERROR should be logged
+    log_set_level(LOG_WARN);  // Only WARNING and ERROR should be logged
     
     log_write(LOG_DEBUG, "Debug message");
     log_write(LOG_INFO, "Info message");
-    log_write(LOG_WARNING, "Warning message");
+    log_write(LOG_WARN, "Warning message");
     log_write(LOG_ERROR, "Error message");
     
     log_close();
@@ -138,7 +139,7 @@ TEST(logger_level_filtering) {
 /* Test console output */
 TEST(logger_console_output) {
     log_init(NULL);
-    log_set_output(LOG_OUTPUT_CONSOLE);
+    log_set_output(LOG_TO_CONSOLE);
     
     // These should go to console (can't easily test output)
     log_write(LOG_INFO, "Console test message");
@@ -156,7 +157,7 @@ TEST(logger_both_outputs) {
     unlink(test_log);
     
     log_init(test_log);
-    log_set_output(LOG_OUTPUT_BOTH);
+    log_set_output(LOG_TO_BOTH);
     
     log_write(LOG_INFO, "Both output test");
     log_close();

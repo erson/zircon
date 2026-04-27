@@ -32,12 +32,13 @@ struct rate_limiter {
 
 /* Create rate limiter */
 rate_limiter_t *rate_limiter_create(const rate_limit_config_t *config) {
+    if (!config) return NULL;
+
     rate_limiter_t *limiter = calloc(1, sizeof(*limiter));
     if (!limiter) return NULL;
 
     /* Copy configuration */
     limiter->config = *config;
-
     /* Allocate client tracking array */
     limiter->clients = calloc(MAX_CLIENTS, sizeof(client_track_t));
     if (!limiter->clients) {
@@ -94,8 +95,9 @@ bool rate_limiter_check(rate_limiter_t *limiter, const char *ip) {
     bool allowed = true;
     time_t now = time(NULL);
 
-    pthread_mutex_lock(&limiter->lock);
+    if (!limiter || !ip || ip[0] == '\0') return false;
 
+    pthread_mutex_lock(&limiter->lock);
     client_track_t *client = get_client(limiter, ip);
     if (!client) {
         pthread_mutex_unlock(&limiter->lock);
@@ -123,9 +125,10 @@ bool rate_limiter_check(rate_limiter_t *limiter, const char *ip) {
         client->window_start = now;
     }
 
-    /* For testing purposes, always allow localhost */
+    /* Allow localhost unconditionally, without tracking */
     if (strcmp(ip, "127.0.0.1") == 0) {
-        client->requests[client->count++] = now;
+        pthread_mutex_unlock(&limiter->lock);
+        return true;
     }
     /* Check rate limit for other IPs */
     else if (client->count >= limiter->config.requests_per_second) {

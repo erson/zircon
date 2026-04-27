@@ -61,10 +61,10 @@ TEST(http_parse_performance) {
 
 /* Test rate limiter performance */
 TEST(rate_limiter_performance) {
-    rate_limiter_config_t config = {
-        .max_requests = 1000,
-        .time_window = 60,
-        .block_duration = 300
+    rate_limit_config_t config = {
+        .requests_per_second = 1000,
+        .burst_size = 1000,
+        .window_seconds = 60
     };
     
     rate_limiter_t *limiter = rate_limiter_create(&config);
@@ -114,10 +114,10 @@ TEST(memory_usage_patterns) {
     free(requests);
     
     // Test rate limiter memory usage
-    rate_limiter_config_t config = {
-        .max_requests = 100,
-        .time_window = 60,
-        .block_duration = 300
+    rate_limit_config_t config = {
+        .requests_per_second = 100,
+        .burst_size = 100,
+        .window_seconds = 60
     };
     
     rate_limiter_t *limiter = rate_limiter_create(&config);
@@ -332,10 +332,10 @@ TEST(sustained_load_test) {
 TEST(resource_cleanup_test) {
     // Test multiple create/destroy cycles
     for (int cycle = 0; cycle < 100; cycle++) {
-        rate_limiter_config_t config = {
-            .max_requests = 10,
-            .time_window = 60,
-            .block_duration = 300
+        rate_limit_config_t config = {
+            .requests_per_second = 10,
+            .burst_size = 10,
+            .window_seconds = 60
         };
         
         rate_limiter_t *limiter = rate_limiter_create(&config);

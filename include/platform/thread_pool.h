@@ -54,6 +54,12 @@ typedef void (*worker_accept_cb)(worker_t *worker, socket_t client_fd,
                                   struct sockaddr_in *client_addr, void *userdata);
 
 /**
+ * Worker periodic callback - called after each event_loop_run_once
+ * in the worker thread. Use for periodic tasks like timeout checks.
+ */
+typedef void (*worker_periodic_cb)(worker_t *worker, void *userdata);
+
+/**
  * Worker configuration
  */
 typedef struct {
@@ -61,8 +67,9 @@ typedef struct {
     uint16_t port;              /* Port to listen on */
     int backlog;                /* Listen backlog */
     int max_connections;        /* Max connections per worker */
-    worker_accept_cb on_accept; /* Connection accept callback */
-    void *userdata;             /* User data passed to callbacks */
+    worker_accept_cb on_accept;     /* Connection accept callback */
+    worker_periodic_cb on_periodic; /* Periodic callback (after each run_once) */
+    void *userdata;                 /* User data passed to callbacks */
 } worker_config_t;
 
 /**
@@ -161,6 +168,7 @@ static inline thread_pool_config_t thread_pool_default_config(void) {
             .backlog = 1024,
             .max_connections = 10000,
             .on_accept = NULL,
+            .on_periodic = NULL,
             .userdata = NULL
         }
     };

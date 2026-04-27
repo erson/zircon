@@ -1,9 +1,12 @@
+/* _GNU_SOURCE must be defined before any system headers for CPU_ZERO/CPU_SET */
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #include "platform/detect.h"
 #include "platform/compat.h"
 #include <stdlib.h>
-
 #if defined(ZIRCON_LINUX)
-    #define _GNU_SOURCE
     #include <sched.h>
     #include <unistd.h>
 #endif

@@ -7,7 +7,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include "server.h"
-#include "logger.h"
+#include "connection.h"
 #include "platform/detect.h"
 #include "platform/thread_pool.h"
 
@@ -20,6 +20,9 @@ unsigned int platform_cpu_count(void);
 
 static volatile sig_atomic_t g_shutdown = 0;
 static thread_pool_t *g_pool = NULL;
+
+/* Shared rate limiter across all workers (thread-safe) */
+static rate_limiter_t *g_shared_rate_limiter = NULL;
 
 static void get_timestamp_str(char *buffer, size_t size) {
     time_t now = time(NULL);
@@ -102,34 +105,115 @@ static void signal_handler(int sig) {
     }
 }
 
+/* ── Multi-Threaded Worker Data ───────────────────────────────── */
+
+typedef struct {
+    server_config_t config;
+    rate_limiter_t *rate_limiter;
+} worker_context_t;
+
+#define MAX_WORKERS 64
+static connection_handler_t *g_worker_handlers[MAX_WORKERS];
+
+static void on_worker_conn_closed(socket_t fd, void *userdata) {
+    worker_t *worker = (worker_t *)userdata;
+    (void)fd;
+    worker_stat_connection_closed(worker);
+}
+
+static void on_worker_periodic(worker_t *worker, void *userdata) {
+    (void)userdata;
+    unsigned int wid = worker_get_id(worker);
+    if (wid >= MAX_WORKERS) return;
+    connection_handler_t *handler = g_worker_handlers[wid];
+    if (handler) {
+        event_loop_t *loop = worker_get_event_loop(worker);
+        connection_handler_check_timeouts(handler, loop);
+    }
+}
+
 static void on_worker_accept(worker_t *worker, socket_t client_fd,
                               struct sockaddr_in *client_addr, void *userdata) {
-    (void)userdata;
-    
+    worker_context_t *ctx = (worker_context_t *)userdata;
+
     char client_ip[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &client_addr->sin_addr, client_ip, sizeof(client_ip));
-    
-    char response[] = 
-        "HTTP/1.1 200 OK\r\n"
-        "Content-Type: text/plain\r\n"
-        "Content-Length: 13\r\n"
-        "Connection: close\r\n"
-        "\r\n"
-        "Hello World!\n";
-    
-    write(client_fd, response, sizeof(response) - 1);
-    close(client_fd);
-    
-    worker_stat_connection_closed(worker);
+
+    event_loop_t *loop = worker_get_event_loop(worker);
+    if (!loop) {
+        close(client_fd);
+        return;
+    }
+
+    /* Lazily create per-worker connection handler on first accept */
+    unsigned int wid = worker_get_id(worker);
+    if (wid >= MAX_WORKERS) {
+        close(client_fd);
+        return;
+    }
+    if (!g_worker_handlers[wid]) {
+        g_worker_handlers[wid] = connection_handler_create(&ctx->config, ctx->rate_limiter);
+        if (!g_worker_handlers[wid]) {
+            close(client_fd);
+            return;
+        }
+    }
+
+    worker_stat_connection_accepted(worker);
+
+    connection_handler_accept(g_worker_handlers[wid], loop, client_fd,
+                              client_ip, on_worker_conn_closed, worker);
+
     worker_stat_request_processed(worker);
 }
 
-static int run_multi_threaded(int port, const char *bind_addr, unsigned int num_workers) {
+static int run_multi_threaded(int port, const char *bind_addr, const char *root_dir,
+                               unsigned int timeout, bool keep_alive,
+                               unsigned int num_workers) {
     char ts[32];
     get_timestamp_str(ts, sizeof(ts));
     printf("[%s] Multi-threaded mode: %u workers\n", ts, 
            num_workers == 0 ? platform_cpu_count() : num_workers);
     
+    /* Create server config for per-worker handlers */
+    server_config_t config = {
+        .port = port,
+        .bind_addr = {0},
+        .root_dir = {0},
+        .max_requests = 100,
+        .connection_timeout = timeout,
+        .max_request_size = 8192,
+        .keep_alive = keep_alive
+    };
+    strncpy(config.bind_addr, bind_addr, sizeof(config.bind_addr) - 1);
+    strncpy(config.root_dir, root_dir, sizeof(config.root_dir) - 1);
+
+    /* Create shared rate limiter (thread-safe, mutex-protected) */
+    unsigned int per_sec = (config.max_requests + 59) / 60;
+    if (per_sec == 0) per_sec = 1;
+
+    rate_limit_config_t rate_config = {
+        .requests_per_second = per_sec,
+        .burst_size = config.max_requests,
+        .window_seconds = 60
+    };
+    g_shared_rate_limiter = rate_limiter_create(&rate_config);
+    if (!g_shared_rate_limiter) {
+        get_timestamp_str(ts, sizeof(ts));
+        fprintf(stderr, "[%s] Error: Failed to create rate limiter\n", ts);
+        return 1;
+    }
+
+    /* Each worker lazily creates its own connection_handler via on_worker_accept */
+    memset(g_worker_handlers, 0, sizeof(g_worker_handlers));
+
+    /* Per-worker context (config + shared rate_limiter) */
+    worker_context_t worker_ctx = {
+        .config = config,
+        .rate_limiter = g_shared_rate_limiter
+    };
+
+    /* Create thread pool */
     thread_pool_config_t pool_config = thread_pool_default_config();
     pool_config.num_workers = num_workers;
     pool_config.pin_to_cpu = true;
@@ -138,12 +222,15 @@ static int run_multi_threaded(int port, const char *bind_addr, unsigned int num_
     pool_config.worker.backlog = 1024;
     pool_config.worker.max_connections = 10000;
     pool_config.worker.on_accept = on_worker_accept;
-    pool_config.worker.userdata = NULL;
+    pool_config.worker.on_periodic = on_worker_periodic;
+    pool_config.worker.userdata = &worker_ctx;
     
     g_pool = thread_pool_create(&pool_config);
     if (!g_pool) {
         get_timestamp_str(ts, sizeof(ts));
         fprintf(stderr, "[%s] Error: Failed to create thread pool\n", ts);
+        rate_limiter_destroy(g_shared_rate_limiter);
+        g_shared_rate_limiter = NULL;
         return 1;
     }
     
@@ -154,13 +241,24 @@ static int run_multi_threaded(int port, const char *bind_addr, unsigned int num_
         get_timestamp_str(ts, sizeof(ts));
         fprintf(stderr, "[%s] Error: Failed to start thread pool\n", ts);
         thread_pool_destroy(g_pool);
+        g_pool = NULL;
+        rate_limiter_destroy(g_shared_rate_limiter);
+        g_shared_rate_limiter = NULL;
         return 1;
     }
     
-    get_timestamp_str(ts, sizeof(ts));
+    printf("[%s] Server Configuration:\n", ts);
+    printf("  Listening: http://%s:%d\n", bind_addr, port);
+    printf("  Root:      %s\n", root_dir);
+    printf("  Timeout:   %u seconds\n", timeout);
+    printf("  KeepAlive: %s\n", keep_alive ? "enabled" : "disabled");
+    printf("  Workers:   %u (SO_REUSEPORT, per-worker connection pools)\n",
+           pool_config.num_workers);
+    printf("\n");
     printf("[%s] Server running on http://%s:%d (multi-threaded)\n",
            ts, bind_addr, port);
     
+    /* Main thread: monitor stats */
     while (!g_shutdown) {
         sleep(1);
         
@@ -183,8 +281,20 @@ static int run_multi_threaded(int port, const char *bind_addr, unsigned int num_
     
     get_timestamp_str(ts, sizeof(ts));
     printf("\n[%s] Shutting down...\n", ts);
+    
     thread_pool_destroy(g_pool);
     g_pool = NULL;
+    
+    /* Destroy per-worker connection handlers (workers joined, safe to access) */
+    for (unsigned int i = 0; i < pool_config.num_workers && i < MAX_WORKERS; i++) {
+        if (g_worker_handlers[i]) {
+            connection_handler_destroy(g_worker_handlers[i]);
+            g_worker_handlers[i] = NULL;
+        }
+    }
+    
+    rate_limiter_destroy(g_shared_rate_limiter);
+    g_shared_rate_limiter = NULL;
     
     return 0;
 }
@@ -297,7 +407,8 @@ int main(int argc, char *argv[]) {
     printf("[%s] Starting...\n\n", ts);
     
     if (num_workers >= 0) {
-        return run_multi_threaded(port, bind_addr, (unsigned int)num_workers);
+        return run_multi_threaded(port, bind_addr, root_dir,
+                                   timeout, keep_alive, (unsigned int)num_workers);
     }
     
     return run_single_threaded(port, bind_addr, root_dir, timeout, keep_alive);
