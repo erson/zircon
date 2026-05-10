@@ -41,6 +41,7 @@ obj/
 .idea/
 *.swp
 *~
+*.bak
 
 # OS specific
 .DS_Store
