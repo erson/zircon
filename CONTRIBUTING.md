@@ -1,60 +1,53 @@
 # Contributing to Zircon
 
-Thank you for your interest in contributing to the Zircon project! As this is primarily an AI experiment, the contribution process is somewhat different from traditional open-source projects.
+Thanks for helping with Zircon. This project is an experimental, AI-assisted C
+systems-programming project, so contributions should prioritize correctness,
+reproducibility, and precise claims over feature breadth.
 
-## Types of Contributions
+## Before submitting changes
 
-There are several ways you can contribute to this project:
+Please run, at minimum:
 
-1. **Study and Report**: Analyze the code, identify patterns, and report findings about the nature of AI-generated code.
+```bash
+make
+make test
+```
 
-2. **Suggestions**: Propose improvements for future iterations of the AI-human collaboration.
+If you touch HTTP parsing, path handling, file serving, defensive headers,
+rate limiting, or connection state transitions, include tests or document a
+clear manual verification path.
 
-3. **Bug Reports**: Identify issues with the existing implementation that might not have been caught during development.
+## Contribution guidelines
 
-4. **Documentation**: Improve the documentation to make it more accessible and educational.
+- Keep changes small and reviewable.
+- Preserve existing behavior unless you are fixing a documented bug.
+- Keep documentation claims precise and modest.
+- Do not describe Zircon as production-ready or as a replacement for nginx,
+  Caddy, or another maintained production server.
+- Avoid unsupported security claims. For example, do not mention SQL injection
+  unless SQL-related functionality actually exists.
+- Add or update tests for parser, path, and security-sensitive changes.
+- Avoid adding heavy dependencies unless the tradeoff is documented.
+- Keep Linux and macOS portability in mind where practical.
 
-## Guidelines
+## Code style
 
-When contributing, please keep in mind:
+- Use 4-space indentation.
+- Keep C code compatible with the project Makefile and existing compiler modes.
+- Keep functions focused and name ownership/lifetime expectations clearly.
+- Prefer bounded string and buffer handling.
+- Comment non-obvious behavior and security-sensitive decisions.
 
-1. **Educational Focus**: This project is primarily meant for educational purposes, demonstrating AI capabilities in system-level programming.
+## Reporting issues
 
-2. **Minimalism**: Zircon is a minimal web server by design. Contributions should respect this philosophy.
+For non-sensitive issues, open a GitHub issue with:
 
-3. **Documentation**: All contributions should include proper documentation explaining the changes and the reasoning behind them.
+- commit hash
+- OS and compiler
+- command used
+- proof-of-concept request or input, if relevant
+- expected behavior
+- actual behavior
 
-4. **Testing**: Include tests for your changes using the existing test protocol when possible.
-
-## Process
-
-To contribute:
-
-1. Fork the repository.
-
-2. Make your changes in a new branch with a descriptive name.
-
-3. Run the test protocol to ensure your changes don't break existing functionality.
-
-4. Create a pull request with a clear description of:
-   - What changes were made
-   - Why these changes are beneficial
-   - How they were tested
-
-5. Wait for review and feedback.
-
-## Code Style
-
-Please follow the existing code style in the project:
-
-- Use 4-space indentation
-- Follow the C99 standard
-- Keep functions focused on a single responsibility
-- Comment complex logic and function purposes
-- Use descriptive variable and function names
-
-## Questions
-
-If you have any questions about contributing, please open an issue in the repository.
-
-Thank you for your interest in the Zircon project!
+A dedicated `SECURITY.md` with vulnerability reporting guidance is planned in a
+follow-up hardening step.

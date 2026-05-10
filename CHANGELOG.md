@@ -2,6 +2,20 @@
 
 All notable changes to the Zircon project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- Added an MIT license file.
+- Added placeholder documentation for threat modeling, AI-assisted audit notes, benchmarks, and fuzzing.
+
+### Changed
+- Repositioned project documentation around experimental, AI-assisted HTTP/1.1 static serving.
+- Clarified implemented and not implemented features.
+- Updated contribution guidance to require precise claims and tests for security-sensitive changes.
+
+### Fixed
+- Updated integration test expectations so HTTP-only responses do not require HSTS by default.
+
 ## [1.1.0] - 2025-03-30
 
 ### Added

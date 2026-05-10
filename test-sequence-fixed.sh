@@ -156,7 +156,7 @@ run_test "X-Frame-Options" "curl -s -I http://$SERVER_HOST:$SERVER_PORT/index.ht
 run_test "X-Content-Type-Options" "curl -s -I http://$SERVER_HOST:$SERVER_PORT/index.html" "contains_X-Content-Type-Options: nosniff"
 run_test "X-XSS-Protection" "curl -s -I http://$SERVER_HOST:$SERVER_PORT/index.html" "contains_X-XSS-Protection: 1; mode=block"
 run_test "Content-Security-Policy" "curl -s -I http://$SERVER_HOST:$SERVER_PORT/index.html" "contains_Content-Security-Policy: default-src 'self'"
-run_test "HSTS" "curl -s -I http://$SERVER_HOST:$SERVER_PORT/index.html" "contains_Strict-Transport-Security:"
+run_test "HSTS not emitted over HTTP" "! curl -s -I http://$SERVER_HOST:$SERVER_PORT/index.html | grep -qi Strict-Transport-Security" "status_0"
 
 # 4. Cache and ETag Tests
 test_header "Cache and ETag Tests"
@@ -170,7 +170,7 @@ ETAG=$(curl -s -I http://$SERVER_HOST:$SERVER_PORT/index.html | grep ETag | awk 
 echo "ETag: $ETAG"
 
 if [ -n "$ETAG" ]; then
-  run_test "304 Not Modified" "curl -s -I -H \"If-None-Match: $ETAG\" http://$SERVER_HOST:$SERVER_PORT/index.html" "contains_304 Not Modified"
+  run_test "304 Not Modified" "curl -s -I -H 'If-None-Match: $ETAG' http://$SERVER_HOST:$SERVER_PORT/index.html" "contains_304 Not Modified"
 else
   echo -e "${YELLOW}ETag not found, skipping 304 test${NC}"
 fi

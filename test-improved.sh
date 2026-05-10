@@ -124,13 +124,6 @@ print_header "Zircon Webserver Test Protocol"
 echo "Performing clean build..."
 make clean && make
 
-# Temporary rate limiting adjustment for testing
-echo "Making temporary adjustment for rate limiting..."
-sed -i.bak 's/max_requests = 60/max_requests = 1000/' src/main.c
-
-# Rebuild
-make
-
 # Start server
 start_server
 if [ $? -ne 0 ]; then
@@ -163,7 +156,7 @@ run_test "X-Frame-Options" "curl -s -I http://$SERVER_HOST:$SERVER_PORT/index.ht
 run_test "X-Content-Type-Options" "curl -s -I http://$SERVER_HOST:$SERVER_PORT/index.html" "contains_X-Content-Type-Options: nosniff"
 run_test "X-XSS-Protection" "curl -s -I http://$SERVER_HOST:$SERVER_PORT/index.html" "contains_X-XSS-Protection: 1; mode=block"
 run_test "Content-Security-Policy" "curl -s -I http://$SERVER_HOST:$SERVER_PORT/index.html" "contains_Content-Security-Policy: default-src 'self'"
-run_test "HSTS" "curl -s -I http://$SERVER_HOST:$SERVER_PORT/index.html" "contains_Strict-Transport-Security:"
+run_test "HSTS not emitted over HTTP" "! curl -s -I http://$SERVER_HOST:$SERVER_PORT/index.html | grep -qi Strict-Transport-Security" "status_0"
 
 # 4. Cache and ETag Tests
 test_header "Cache and ETag Tests"
